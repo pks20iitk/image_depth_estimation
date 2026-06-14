@@ -1,0 +1,54 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────
+# docker-compose.yml — Depth Estimation API full stack
+# ─────────────────────────────────────────────────────────────────
+# Start:   docker compose up -d
+# GPU:     docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# Logs:    docker compose logs -f depth-api
+# ─────────────────────────────────────────────────────────────────
+
+services:
+  depth-api:
+    build: .
+    container_name: depth_estimation_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DEVICE=cpu                        # change to 'cuda' for GPU image
+      - MAX_IMAGE_SIZE=1920
+      - MAX_UPLOAD_MB=20
+      - COLORMAP=inferno
+      - WORKERS=1
+      - CORS_ORIGINS=["*"]
+      # Override model checkpoints if needed:
+      # - RELATIVE_MODEL_CHECKPOINT=depth-anything/Depth-Anything-V2-Large-hf
+      # - METRIC_MODEL_CHECKPOINT=Intel/zoedepth-nyu-kitti
+    volumes:
+      - hf_cache:/app/.cache/huggingface  # persist downloaded model weights
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s                  # allow time for model download on first run
+
+  # ── Optional: Nginx reverse proxy ────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: depth_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./configs/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      depth-api:
+        condition: service_healthy
+    profiles:
+      - production                        # only starts with --profile production
+
+volumes:
+  hf_cache:
+    driver: local
